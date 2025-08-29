@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Guidance Simulation Tool v3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .chat-bubble-student { background-color: #e5e7eb; color: #1f2937; }
+        .chat-bubble-practitioner { background-color: #3b82f6; color: white; }
+        .dot-flashing { position: relative; width: 10px; height: 10px; border-radius: 5px; background-color: #6366f1; animation: dot-flashing 1s infinite linear alternate; animation-delay: 0.5s; }
+        .dot-flashing::before, .dot-flashing::after { content: ""; display: inline-block; position: absolute; top: 0; }
+        .dot-flashing::before { left: -15px; width: 10px; height: 10px; border-radius: 5px; background-color: #6366f1; animation: dot-flashing 1s infinite alternate; animation-delay: 0s; }
+        .dot-flashing::after { left: 15px; width: 10px; height: 10px; border-radius: 5px; background-color: #6366f1; animation: dot-flashing 1s infinite alternate; animation-delay: 1s; }
+        @keyframes dot-flashing { 0% { background-color: #6366f1; } 50%, 100% { background-color: #c7d2fe; } }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 50; transition: opacity 0.3s ease; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
+        .framework-link { color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, Fragment } = React;
+
+        // --- Data and Constants ---
+        const SCENARIOS = [
+            // --- Tier 1: Basic ---
+            { id: 1, tier: 1, name: 'Benny', course: 'Business Management', year: '3rd Year', note: 'Attended a careers fair last semester.', persona: 'casual and looking for straightforward, factual information. Generally agreeable.', query: "Hiya, can I get some info on the process and timeline for 3rd years looking for grad jobs?", reflective_question: "Benny's tone is very casual. How did you adapt your professional tone for a chat to build rapport while still providing structured advice?" },
+            { id: 2, tier: 1, name: 'Sandie', course: 'Politics', year: '2nd Year', note: 'No previous contact.', persona: 'proactive and clear about their goals, but needs help with resources. Appreciates direct links and clear steps.', query: "Hi, I'm a 2nd year Politics student looking for some help finding a paid summer internship. I'm interested in the public sector, international affairs, human rights etc. but can't find much. Can you help?", reflective_question: "Sandie provided a lot of detail in her first message. How did you decide which points to address first to avoid overwhelming her in a chat format?" },
+
+            // --- Tier 2: Intermediate ---
+            { id: 3, tier: 2, name: 'Eric', course: 'Economics', year: 'Graduated', note: 'Previously enquired about postgraduate study.', persona: 'focused on a competitive field (finance) and feeling some pressure. May ask more detailed follow-up questions about specific skills.', query: "Hi, I've graduated with an Economics degree and want to get into finance. What kind of temp summer jobs would help me get the right skills for a grad programme?", reflective_question: "Eric is a graduate feeling pressure about a competitive field. How did your chat response aim to build his confidence as well as provide information?" },
+            { id: 4, tier: 2, name: 'Amira', course: 'Law (Masters)', year: 'Postgraduate', note: 'No previous contact.', persona: 'highly ambitious and targeting a very specific area. Will become frustrated if given generic advice and may challenge the information you provide.', query: "Hi, I'm doing a Law Masters and I'm looking for advice on getting work experience or a grad role in the civil service, specifically the Home Office or Foreign Office.", reflective_question: "Amira has a very specific goal. In a live chat, how did you manage her expectations in the moment while still being encouraging?" },
+
+            // --- Tier 3: Advanced ---
+            { id: 5, tier: 3, name: 'Jamie', course: 'Psychology (Part-Time)', year: '1st Year', note: 'Mature student, career changer.', persona: 'a mature student feeling uncertain and anxious about a significant career change. Their responses might be emotional, and they may express self-doubt that needs careful handling.', query: "Hi, I'm a mature student and just started a part-time Psychology degree. I've been in retail for 15 years but want to change careers to something like counselling. I'm a bit lost on where to start or if it's realistic at my age. Any advice?", reflective_question: "Jamie, a mature student, expressed vulnerability. What specific language or techniques did you use in the chat to show empathy and reassurance quickly?" },
+            { id: 6, tier: 3, name: 'Chloe', course: 'Computer Science', year: '2nd Year', note: 'Failing a module.', persona: 'feeling demotivated and considering dropping out. They are evasive about their academic performance and might respond with short, disengaged answers. Requires sensitive probing.', query: "hi. not sure if this is the right place but my tutor said i should talk to someone. my course isnt really what i expected.", reflective_question: "Chloe is disengaged and potentially facing academic challenges. How did you attempt to explore the underlying issues without making her feel defensive?" }
+        ];
+
+        const BASE_REFLECTIVE_QUESTIONS = [
+            "How effectively did you mirror the full guidance process (e.g., contracting, exploring, action planning) within a chat conversation?",
+            "How did you manage tone and develop empathy through concise chat responses?",
+            "What value did you bring as a human practitioner in a live chat that an AI tool might not have provided?",
+            "How did the exchange maintain ethical standards as outlined in the CDI Code of Ethics?"
+        ];
+
+        const FRAMEWORKS = {
+            "Egan's Skilled Helper": {
+                title: "Egan's Skilled Helper Model",
+                description: "A three-stage framework for structuring helping conversations:",
+                points: ["Stage I: The Current Picture - Help clients explore their current situation and concerns.", "Stage II: The Preferred Picture - Help clients determine what they want instead.", "Stage III: The Way Forward - Help clients create a plan to get what they want."]
+            },
+            "Bedford's FIRST": {
+                title: "Bedford's FIRST Model",
+                description: "A framework for a career guidance interview:",
+                points: ["Focus: Agree on the focus of the conversation.", "Information: Explore and provide relevant information.", "Realism: Test for realism and consider alternatives.", "Scope: Widen the scope of options if necessary.", "Tactics: Plan the next steps."]
+            }
+        };
+
+        const API_KEY = "AIzaSyDlTIZTGsePTZPktJ4om-b-NqcAlODhRl8"; // NOTE: No API key is needed. The environment automatically provides one.
+
+        // --- Reusable UI Components ---
+
+        const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+                    <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+                        <h2 id="modal-title" className="text-xl font-bold text-gray-800">{title}</h2>
+                        <div className="mt-2 text-gray-600">{children}</div>
+                        <div className="mt-6 flex justify-end space-x-3">
+                            <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">Cancel</button>
+                            <button onClick={onConfirm} className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const InfoModal = ({ isOpen, onClose, framework }) => {
+            if (!isOpen || !framework) return null;
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+                        <h2 className="text-xl font-bold text-gray-800">{framework.title}</h2>
+                        <p className="mt-2 text-gray-600">{framework.description}</p>
+                        <ul className="mt-4 list-disc list-inside space-y-2 text-gray-700">
+                            {framework.points.map((point, i) => <li key={i}>{point}</li>)}
+                        </ul>
+                        <div className="mt-6 text-right">
+                            <button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">Close</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const FrameworkLink = ({ name, onClick }) => (
+            <span onClick={() => onClick(name)} className="framework-link" role="button" tabIndex="0">
+                {name}
+            </span>
+        );
+        
+        const AutoResizingTextarea = (props) => {
+            const textareaRef = useRef(null);
+            useEffect(() => {
+                const textarea = textareaRef.current;
+                if (textarea) {
+                    textarea.style.height = 'auto';
+                    const scrollHeight = textarea.scrollHeight;
+                    textarea.style.height = `${scrollHeight}px`;
+                }
+            }, [props.value]);
+
+            return <textarea ref={textareaRef} {...props} />;
+        };
+
+        const ErrorBanner = ({ message, onDismiss }) => {
+            if (!message) return null;
+            return (
+                 <div className="absolute top-0 left-0 right-0 bg-red-100 border-b-2 border-red-500 text-red-700 p-4 text-center flex justify-between items-center" role="alert">
+                    <p>{message}</p>
+                    <button onClick={onDismiss} className="font-bold text-xl px-2">&times;</button>
+                 </div>
+            );
+        };
+
+        // --- Screen Components ---
+
+        const DashboardScreen = ({ scenarios, onStart }) => {
+            const [selectedTier, setSelectedTier] = useState(1);
+            const tiers = [...new Set(scenarios.map(s => s.tier))].sort();
+            const tierNames = {1: "Basic", 2: "Intermediate", 3: "Advanced"};
+
+            const filteredScenarios = scenarios.filter(s => s.tier === selectedTier);
+
+            return (
+                <div className="p-8 h-full overflow-y-auto bg-gray-50">
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2">Guidance Chat Simulation</h1>
+                    <p className="text-gray-600 mb-6">Select a scenario to begin.</p>
+                    
+                    <div className="mb-6 border-b border-gray-200">
+                        <nav className="-mb-px flex space-x-6" aria-label="Tiers">
+                            {tiers.map(tier => (
+                                <button key={tier} onClick={() => setSelectedTier(tier)}
+                                    className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${selectedTier === tier ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
+                                    {tierNames[tier]}
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+                        {filteredScenarios.map(scenario => (
+                             <div key={scenario.id} className="bg-white p-6 rounded-lg shadow-md border border-gray-200 flex flex-col justify-between">
+                                <div>
+                                    <h3 className="font-bold text-lg text-gray-800">{scenario.name}</h3>
+                                    <p className="text-sm text-gray-600">{scenario.course} - {scenario.year}</p>
+                                    <p className="mt-4 text-sm bg-gray-100 p-3 rounded-md italic">"{scenario.query}"</p>
+                                </div>
+                                <div className="mt-6">
+                                    <button onClick={() => onStart(scenario, scenario.query)} className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm">Start this Scenario</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+
+        const SimulationView = ({ scenario, chatHistory, isLoading, onSend, onPause, onEnd, simulationState, helpText, onResume, onFrameworkClick, practitionerInput, onInputChange }) => {
+            const [isEndModalOpen, setIsEndModalOpen] = useState(false);
+            const chatEndRef = useRef(null);
+
+            useEffect(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [chatHistory, isLoading]);
+
+            const handleSendClick = () => {
+                if (!practitionerInput.trim()) return;
+                onSend(practitionerInput);
+            };
+
+            return (
+                <div className="flex flex-col h-full">
+                    <header className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
+                        <div className="text-sm">
+                            <h2 className="font-bold text-gray-800">{scenario.name}</h2>
+                            <p className="text-gray-600">{scenario.course} - {scenario.year}</p>
+                            <p className="text-gray-500 italic text-xs mt-1">Note: {scenario.note}</p>
+                        </div>
+                        <button onClick={() => setIsEndModalOpen(true)} className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-colors">End Simulation</button>
+                    </header>
+                    
+                    <main className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0" aria-live="polite">
+                        {chatHistory.map((msg, index) => (
+                            <div key={index} className={`flex ${msg.role === 'student' ? 'justify-start' : 'justify-end'}`}>
+                                <div className={`max-w-lg lg:max-w-xl px-4 py-3 rounded-2xl shadow ${msg.role === 'student' ? 'chat-bubble-student' : 'chat-bubble-practitioner'}`}>
+                                    <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                                </div>
+                            </div>
+                        ))}
+                        {isLoading && <div className="flex justify-start"><div className="px-4 py-3 rounded-2xl shadow chat-bubble-student"><div className="dot-flashing"></div></div></div>}
+                        <div ref={chatEndRef} />
+                    </main>
+
+                    <div className="border-t bg-white shrink-0">
+                        {simulationState === 'paused' && (
+                            <PausedView 
+                                helpText={helpText} 
+                                isLoading={isLoading}
+                                onResume={onResume} 
+                                onFrameworkClick={onFrameworkClick} 
+                            />
+                        )}
+                        <footer className="p-4">
+                            <div className="flex items-start space-x-3">
+                                <AutoResizingTextarea
+                                    value={practitionerInput}
+                                    onChange={(e) => onInputChange(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendClick(); } }}
+                                    placeholder="Type your response..."
+                                    className="flex-1 w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+                                    rows="1"
+                                    disabled={simulationState === 'paused'}
+                                    aria-label="Your response to the student"
+                                />
+                                <div className="flex flex-col space-y-2">
+                                    <button onClick={handleSendClick} disabled={!practitionerInput.trim() || simulationState === 'paused'} className="px-5 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors" aria-label="Send message">Send</button>
+                                    <button onClick={onPause} disabled={simulationState === 'paused'} className="px-5 py-2 bg-yellow-500 text-white text-sm font-semibold rounded-lg hover:bg-yellow-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors" aria-label="Pause simulation for help">Help</button>
+                                </div>
+                            </div>
+                        </footer>
+                    </div>
+                    
+                    <ConfirmationModal isOpen={isEndModalOpen} onClose={() => setIsEndModalOpen(false)} onConfirm={onEnd} title="End Simulation?">
+                        Are you sure? You will be moved to the reflection and feedback stage.
+                    </ConfirmationModal>
+                </div>
+            );
+        };
+
+        const PausedView = ({ helpText, isLoading, onResume, onFrameworkClick }) => (
+            <div className="p-4 mx-4 mb-0 mt-4 border-l-4 border-yellow-400 bg-yellow-50 rounded-lg">
+                <h3 className="font-bold text-yellow-800">Simulation Paused: Reflective Prompts</h3>
+                {isLoading ? (
+                    <div className="flex justify-center items-center h-24"><div className="dot-flashing"></div></div>
+                ) : (
+                    <>
+                        <div className="mt-2 text-sm text-yellow-700 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                        {helpText.split(/ (Egan's Skilled Helper|Bedford's FIRST) /g).map((part, index) => {
+                            if (FRAMEWORKS[part]) {
+                                return <FrameworkLink key={index} name={part} onClick={onFrameworkClick} />;
+                            }
+                            return <Fragment key={index}>{part}</Fragment>;
+                        })}
+                        </div>
+                        <button onClick={onResume} className="mt-4 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition-colors">Resume Simulation</button>
+                    </>
+                )}
+            </div>
+        );
+        
+        const ReflectionScreen = ({ scenario, onGetFeedback }) => {
+            const scenarioQuestion = scenario ? scenario.reflective_question : '';
+            const allQuestions = scenarioQuestion ? [scenarioQuestion, ...BASE_REFLECTIVE_QUESTIONS] : BASE_REFLECTIVE_QUESTIONS;
+
+            return (
+                <div className="p-8 overflow-y-auto h-full bg-gray-50">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Simulation Ended</h2>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-6">Reflective Questions</h3>
+                    <div className="space-y-6">
+                        {allQuestions.map((q, i) => (
+                            <div key={i}>
+                                <label className="block text-md font-medium text-gray-700 mb-2">{i + 1}. {q}</label>
+                                <textarea rows="3" className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" aria-label={q}></textarea>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-8 text-center">
+                        <button onClick={onGetFeedback} className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">Request AI Feedback</button>
+                    </div>
+                </div>
+            );
+        };
+        
+        const FeedbackScreen = ({ feedback, modelAnswer, onDownload, onReset, onGetModelAnswer, isLoading, isModelAnswerLoading }) => {
+            const feedbackSections = feedback ? Object.entries(feedback) : [];
+            return (
+                <div className="p-8 overflow-y-auto h-full bg-gray-100">
+                    <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Feedback Report</h2>
+                        <div className="flex space-x-2">
+                             <button onClick={onDownload} className="px-4 py-2 bg-gray-600 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 transition-colors">Download Transcript</button>
+                             <button onClick={onReset} className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors">Start New Simulation</button>
+                        </div>
+                    </div>
+                    {isLoading ? (<div className="flex justify-center items-center h-64"><div className="dot-flashing"></div></div>) : (
+                        <div className="space-y-4">
+                            {feedbackSections.map(([key, value]) => (
+                                <div key={key} className="bg-white rounded-lg shadow-md border border-gray-200">
+                                    <h3 className="text-lg font-bold text-gray-800 p-4 border-b capitalize">{key.replace(/_/g, ' ')}</h3>
+                                    <div className="p-4 text-gray-700 whitespace-pre-wrap">{typeof value === 'object' ? 
+                                        <>
+                                            <p><strong>What was done well:</strong> {value.what_was_done_well}</p>
+                                            <p className="mt-2"><strong>What could be improved:</strong> {value.what_could_be_improved}</p>
+                                        </>
+                                        : value
+                                    }</div>
+                                </div>
+                            ))}
+
+                            <div className="bg-white rounded-lg shadow-md border border-gray-200">
+                                <h3 className="text-lg font-bold text-gray-800 p-4 border-b">Exemplar Response</h3>
+                                <div className="p-4">
+                                    {isModelAnswerLoading && <div className="flex items-center justify-center h-16"><div className="dot-flashing"></div></div>}
+                                    {modelAnswer && <p className="text-gray-700 whitespace-pre-wrap">{modelAnswer}</p>}
+                                    {!modelAnswer && !isModelAnswerLoading && (
+                                        <button onClick={onGetModelAnswer} className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition-colors">
+                                            Show an Example Response
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+        
+        // --- Main App Component ---
+        function App() {
+            // State Management
+            const [simulationState, setSimulationState] = useState('dashboard');
+            const [currentScenario, setCurrentScenario] = useState(null);
+            const [chatHistory, setChatHistory] = useState([]);
+            const [practitionerInput, setPractitionerInput] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [pauseHelpText, setPauseHelpText] = useState('');
+            const [feedback, setFeedback] = useState(null);
+            const [modelAnswer, setModelAnswer] = useState('');
+            const [isModelAnswerLoading, setIsModelAnswerLoading] = useState(false);
+            const [errorMessage, setErrorMessage] = useState('');
+            const [modalFramework, setModalFramework] = useState(null);
+
+            // LocalStorage for State Persistence
+            useEffect(() => {
+                try {
+                    const savedState = localStorage.getItem('simulationState');
+                    if (savedState) {
+                        const { state, scenario, history, query } = JSON.parse(savedState);
+                        if (state !== 'dashboard' && state !== 'idle' && scenario && history) {
+                            setSimulationState(state);
+                            setCurrentScenario(scenario);
+                            setChatHistory(history);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Failed to load state from localStorage", error);
+                    localStorage.removeItem('simulationState');
+                }
+            }, []);
+
+            useEffect(() => {
+                if (simulationState !== 'dashboard' && simulationState !== 'idle') {
+                    const stateToSave = JSON.stringify({ state: simulationState, scenario: currentScenario, history: chatHistory });
+                    localStorage.setItem('simulationState', stateToSave);
+                } else {
+                    localStorage.removeItem('simulationState');
+                }
+            }, [simulationState, currentScenario, chatHistory]);
+
+            const callGeminiAPI = async (systemPrompt, userMessages, isJson = false) => {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
+                
+                const payload = {
+                    contents: userMessages.map(msg => ({
+                        role: msg.role === 'student' ? 'model' : 'user',
+                        parts: [{ text: msg.text }]
+                    })),
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                if (isJson) {
+                    payload.generationConfig = { responseMimeType: "application/json" };
+                }
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`API error (${response.status}): ${response.statusText}`);
+                    
+                    const result = await response.json();
+                    const textContent = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                    if (!textContent) throw new Error("No content returned from API.");
+                    
+                    return isJson ? JSON.parse(textContent) : textContent;
+
+                } catch (error) {
+                    console.error("Error calling Gemini API:", error);
+                    setErrorMessage(`Failed to get response from AI: ${error.message}`);
+                    return null;
+                }
+            };
+
+            // --- Event Handlers ---
+
+            const handleReset = () => {
+                setSimulationState('dashboard');
+                setCurrentScenario(null);
+                setChatHistory([]);
+                setFeedback(null);
+                setModelAnswer('');
+                setErrorMessage('');
+            };
+
+            const handleStart = (scenario, query) => {
+                // We create a copy of the scenario to avoid mutating the original data, though query is passed separately
+                const scenarioCopy = { ...scenario, query: query };
+                setCurrentScenario(scenarioCopy);
+                setChatHistory([{ role: 'student', text: query }]);
+                setSimulationState('running');
+            };
+
+            const handleSend = async () => {
+                if (!practitionerInput.trim()) return;
+                const newPractitionerMessage = { role: 'practitioner', text: practitionerInput };
+                const updatedChatHistory = [...chatHistory, newPractitionerMessage];
+                setChatHistory(updatedChatHistory);
+                setPractitionerInput('');
+                setIsLoading(true);
+                
+                const getTierInstruction = (tier) => {
+                    switch(tier) {
+                        case 1: return "This is a basic scenario. The student is likely to be cooperative and looking for information.";
+                        case 2: return "This is an intermediate scenario. The student may have more specific questions or challenge generic advice.";
+                        case 3: return "This is an advanced scenario. The student may be emotional, disengaged, or skeptical. Your responses should be handled with extra sensitivity and care.";
+                        default: return "";
+                    }
+                }
+
+                const tierInstruction = getTierInstruction(currentScenario.tier);
+                const systemPrompt = `You are a university student roleplaying. Your name is ${currentScenario.name}. You are a ${currentScenario.year} ${currentScenario.course} student. Your personality is: ${currentScenario.persona}. This is a Tier ${currentScenario.tier} interaction. ${tierInstruction} Stay in character. Do NOT offer career advice. Respond naturally to the careers practitioner. Keep responses concise (2-4 sentences).`;
+                const studentResponse = await callGeminiAPI(systemPrompt, updatedChatHistory);
+
+                if(studentResponse) {
+                    setChatHistory(prev => [...prev, { role: 'student', text: studentResponse }]);
+                }
+                setIsLoading(false);
+            };
+            
+            const handlePause = async () => {
+                setSimulationState('paused');
+                setIsLoading(true);
+                const systemPrompt = `You are an AI assistant for a careers adviser simulation. The user has paused for help. Step out of the student character. Offer supportive, reflective prompts to help them think through how to respond as a careers adviser. DO NOT provide a suggested response. Instead, ask reflective questions to help them develop their own response, referencing guidance models like Egan's Skilled Helper or Bedford's FIRST where appropriate.`;
+                
+                const messagesForApi = [...chatHistory, { role: 'practitioner', text: "I need some help formulating my next response." }];
+                const helpText = await callGeminiAPI(systemPrompt, messagesForApi);
+                
+                if (helpText) setPauseHelpText(helpText);
+                setIsLoading(false);
+            };
+
+            const handleResume = () => {
+                setSimulationState('running');
+                setPauseHelpText('');
+            };
+
+            const handleEnd = () => setSimulationState('ended');
+
+            const handleGetFeedback = async () => {
+                setIsLoading(true);
+                setSimulationState('feedback');
+                const systemPrompt = `You are an expert career development coach providing feedback. Evaluate the conversation based on the provided history. Structure your feedback as a JSON object with these exact keys: "beginning_contracting_and_rapport", "middle_exploring_and_understanding", "end_planning_and_moving_forward", "connecting_to_guidance_models", and "feedback_summary". The value for "feedback_summary" must be another JSON object with two keys: "what_was_done_well" and "what_could_be_improved". Be specific, constructive, and developmental.`;
+                const messagesForApi = [...chatHistory, { role: 'practitioner', text: "Please provide structured feedback on my performance." }];
+                
+                const feedbackJson = await callGeminiAPI(systemPrompt, messagesForApi, true);
+                if (feedbackJson) setFeedback(feedbackJson);
+                setIsLoading(false);
+            };
+
+            const handleGetModelAnswer = async () => {
+                 setIsModelAnswerLoading(true);
+                 const systemPrompt = `You are an expert, empathetic careers adviser. A practitioner has just completed a simulation with a student. Your task is to write a single, exemplary initial chat response to the student's very first message. Demonstrate best practices for live chat guidance: build rapport, acknowledge their situation, ask a clarifying question, and set expectations for the chat. The response should be professional yet warm and concise. Do not roleplay as the student. Directly write the ideal response.`;
+                 const initialQuery = [{role: 'user', text: currentScenario.query}];
+                 const answer = await callGeminiAPI(systemPrompt, initialQuery);
+                 if (answer) setModelAnswer(answer);
+                 setIsModelAnswerLoading(false);
+            };
+            
+            const handleDownload = () => {
+                const transcript = chatHistory.map(msg => `${msg.role.toUpperCase()}:\n${msg.text}`).join('\n\n---\n\n');
+                let feedbackText = "No feedback was generated.";
+                if(feedback){
+                    feedbackText = Object.entries(feedback)
+                        .map(([key, value]) => `## ${key.replace(/_/g, ' ')}\n\n${typeof value === 'object' ? `Well done: ${value.what_was_done_well}\nCould be improved: ${value.what_could_be_improved}` : value}`)
+                        .join('\n\n---\n\n');
+                }
+                const fullContent = `Guidance Chat Simulation Transcript\nStudent: ${currentScenario.name}\nDate: ${new Date().toLocaleDateString()}\n\n---\n\n${transcript}\n\n---\n\nAI FEEDBACK:\n\n${feedbackText}`;
+                
+                const blob = new Blob([fullContent], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `simulation-transcript-${currentScenario.name}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            // --- Main Render Logic ---
+            
+            const renderContent = () => {
+                switch (simulationState) {
+                    case 'running':
+                    case 'paused':
+                        return <SimulationView 
+                            scenario={currentScenario} 
+                            chatHistory={chatHistory} 
+                            isLoading={isLoading} 
+                            onSend={handleSend} 
+                            onPause={handlePause} 
+                            onEnd={handleEnd} 
+                            simulationState={simulationState}
+                            helpText={pauseHelpText}
+                            onResume={handleResume}
+                            onFrameworkClick={(name) => setModalFramework(FRAMEWORKS[name])}
+                            practitionerInput={practitionerInput}
+                            onInputChange={setPractitionerInput}
+                        />;
+                    case 'ended':
+                        return <ReflectionScreen scenario={currentScenario} onGetFeedback={handleGetFeedback} />;
+                    case 'feedback':
+                        return <FeedbackScreen feedback={feedback} modelAnswer={modelAnswer} onDownload={handleDownload} onReset={handleReset} onGetModelAnswer={handleGetModelAnswer} isLoading={isLoading} isModelAnswerLoading={isModelAnswerLoading} />;
+                    case 'dashboard':
+                    default:
+                        return <DashboardScreen scenarios={SCENARIOS} onStart={handleStart} />;
+                }
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto my-4 md:my-8 relative">
+                    <ErrorBanner message={errorMessage} onDismiss={() => setErrorMessage('')} />
+                    <div className="bg-white rounded-2xl shadow-2xl h-[90vh] flex flex-col overflow-hidden">
+                        {renderContent()}
+                    </div>
+                    <InfoModal isOpen={!!modalFramework} onClose={() => setModalFramework(null)} framework={modalFramework} />
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+
