@@ -64,8 +64,6 @@
             }
         };
 
-        const API_KEY = "AIzaSyDlTIZTGsePTZPktJ4om-b-NqcAlODhRl8"; // NOTE: No API key is needed. The environment automatically provides one.
-
         // --- Reusable UI Components ---
 
         const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children }) => {
@@ -379,7 +377,8 @@
             }, [simulationState, currentScenario, chatHistory]);
 
             const callGeminiAPI = async (systemPrompt, userMessages, isJson = false) => {
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
+                // MODIFIED: This URL now points to your secure serverless function proxy
+                const apiUrl = `/.netlify/functions/api-proxy`;
                 
                 const payload = {
                     contents: userMessages.map(msg => ({
@@ -409,8 +408,8 @@
                     return isJson ? JSON.parse(textContent) : textContent;
 
                 } catch (error) {
-                    console.error("Error calling Gemini API:", error);
-                    setErrorMessage(`Failed to get response from AI: ${error.message}`);
+                    console.error("Error calling backend function:", error);
+                    setErrorMessage(`Failed to get response: ${error.message}`);
                     return null;
                 }
             };
@@ -566,4 +565,3 @@
     </script>
 </body>
 </html>
-
